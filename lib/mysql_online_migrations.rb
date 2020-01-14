@@ -18,9 +18,15 @@ module MysqlOnlineMigrations
   def connection
     original_connection = super
     adapter_mode = original_connection.class.name == "ActiveRecord::ConnectionAdapters::Mysql2Adapter"
+    makara_mode  = original_connection.class.name == "ActiveRecord::ConnectionAdapters::MakaraMysql2Adapter"
 
     @original_adapter ||= if adapter_mode
       original_connection
+    elsif makara_mode
+      original_connection.instance_variable_get(:@master_pool)
+                         .instance_variable_get(:@connections)
+                         .first
+                         .instance_variable_get(:@connection)
     else
       original_connection.instance_variable_get(:@delegate)
     end
@@ -29,6 +35,13 @@ module MysqlOnlineMigrations
 
     if adapter_mode
       @no_lock_adapter
+    elsif makara_mode
+      master_pool = original_connection.instance_variable_get(:@master_pool)
+      connection  = master_pool.instance_variable_get(:@connections).first
+      connection.instance_variable_set(:@connection, @no_lock_adapter)
+      master_pool.instance_variable_set(:@connections, [connection])
+      original_connection.instance_variable_set(:@master_pool, master_pool)
+      original_connection
     else
       original_connection.instance_variable_set(:@delegate, @no_lock_adapter)
       original_connection
